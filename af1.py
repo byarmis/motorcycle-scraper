@@ -160,3 +160,8 @@ if __name__ == "__main__":
         send_email("\n".join(message))
     elif any(message) and not has_secrets:
         print("\n".join(message))
+
+    current_time = dt.now().strftime("%Y-%m-%d %I:%M %p")
+    with open(f"{CWD}/runs.txt", "a") as f:
+        f.write(current_time + "\n")
+
