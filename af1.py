@@ -4,13 +4,13 @@ import pathlib
 from bs4 import BeautifulSoup as bs
 from datetime import datetime as dt
 
-from typing import List, Set
+from typing import List, Set, Optional, Any
 
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
 try:
-    from secrets import API_KEY, FROM_EMAIL, TO_EMAILS
+    from secrets import API_KEY, FROM_EMAIL, TO_EMAILS  # type: ignore
 
     has_secrets = True
 except ImportError:
@@ -20,10 +20,16 @@ BASE_URL = "https://www.af1racingaustin.com"
 CWD = pathlib.Path(__file__).parent.resolve()
 
 
+def _not_null(val: Optional[Any]) -> Any:
+    # https://discuss.python.org/t/improve-typing-with-to-force-not-none-value/7840/16
+    assert val is not None
+    return val
+
+
 @dataclass
 class Bike:
     title: str
-    price: str = None
+    price: Optional[str] = None
 
     def __str__(self):
         return f"{self.price} - {self.title}"
@@ -91,11 +97,11 @@ class BikeType:
         footer = "\n</ul>"
 
         added_header = "<h2>Added</h2>\n<ul>\n"
-        added_body = [f"<li>{b}</li>" for b in self.new if b]
+        added_body = [f"<li>{b}</li>" for b in _not_null(self.new) if b]
         added_html = added_header + "\n".join(added_body) + footer
 
         removed_header = "<h2>Removed</h2>\n<ul>\n"
-        removed_body = [f"<li><s>{b}</s></li>" for b in self.removed if b]
+        removed_body = [f"<li><s>{b}</s></li>" for b in _not_null(self.removed) if b]
         removed_html = removed_header + "\n".join(removed_body) + footer
 
         output = []
