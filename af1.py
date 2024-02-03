@@ -11,12 +11,14 @@ from sendgrid.helpers.mail import Mail
 
 try:
     from secrets import API_KEY, FROM_EMAIL, TO_EMAILS
+
     has_secrets = True
 except ImportError:
     has_secrets = False
 
-BASE_URL = 'https://www.af1racingaustin.com'
+BASE_URL = "https://www.af1racingaustin.com"
 CWD = pathlib.Path(__file__).parent.resolve()
+
 
 @dataclass
 class Bike:
@@ -24,13 +26,13 @@ class Bike:
     price: str = None
 
     def __str__(self):
-        return f'{self.price} - {self.title}'
+        return f"{self.price} - {self.title}"
 
 
 class BikeType:
     def __init__(self, url_addition: str, bike_type: str):
-        self.url = '/'.join((BASE_URL, url_addition))
-        self.file_name = f'{bike_type.lower()}.txt'
+        self.url = "/".join((BASE_URL, url_addition))
+        self.file_name = f"{bike_type.lower()}.txt"
         self.bike_type = bike_type
 
         self.new = None
@@ -39,12 +41,16 @@ class BikeType:
     def get_soup(self):
         res = requests.get(self.url)
         res.raise_for_status()
-        return bs(res.text, 'html.parser')
+        return bs(res.text, "html.parser")
 
     @staticmethod
     def get_bikes(soup) -> List[Bike]:
-        prices = [p.text.strip() for p in soup.find_all('div', {'class': 'product-price'})]
-        titles = [p.text.strip() for p in soup.find_all('div', {'class': 'product-title'})]
+        prices = [
+            p.text.strip() for p in soup.find_all("div", {"class": "product-price"})
+        ]
+        titles = [
+            p.text.strip() for p in soup.find_all("div", {"class": "product-title"})
+        ]
 
         d = [Bike(title=t.strip(), price=p.strip()) for t, p in zip(titles, prices)]
         d.sort(key=lambda x: x.title)
@@ -53,25 +59,25 @@ class BikeType:
 
     def get_last_line(self) -> Set[str]:
         try:
-            with open(f'{CWD}/{self.file_name}', 'r') as f:
-                last_line = ''
+            with open(f"{CWD}/{self.file_name}", "r") as f:
+                last_line = ""
                 for line in f.readlines():
                     last_line = line
 
         except FileNotFoundError:
             return set()
 
-        return set(l.strip() for l in last_line.split('\t'))
+        return set(l.strip() for l in last_line.split("\t"))
 
     def write_line(self, output):
-        with open(f'{CWD}/{self.file_name}', 'a') as f:
-            f.write('\t'.join(output) + '\n')
+        with open(f"{CWD}/{self.file_name}", "a") as f:
+            f.write("\t".join(output) + "\n")
 
     def do(self):
         soup = self.get_soup()
         bikes = self.get_bikes(soup)
 
-        output = [f'{b.title} - {b.price}' for b in bikes]
+        output = [f"{b.title} - {b.price}" for b in bikes]
 
         prev = self.get_last_line()
         self.write_line(output)
@@ -82,15 +88,15 @@ class BikeType:
         self.removed = prev - current
 
     def get_html(self) -> str:
-        footer = '\n</ul>'
+        footer = "\n</ul>"
 
-        added_header = '<h2>Added</h2>\n<ul>\n'
-        added_body = [f'<li>{b}</li>' for b in self.new if b]
-        added_html = added_header + '\n'.join(added_body) + footer
+        added_header = "<h2>Added</h2>\n<ul>\n"
+        added_body = [f"<li>{b}</li>" for b in self.new if b]
+        added_html = added_header + "\n".join(added_body) + footer
 
-        removed_header = '<h2>Removed</h2>\n<ul>\n'
-        removed_body = [f'<li><s>{b}</s></li>' for b in self.removed if b]
-        removed_html = removed_header + '\n'.join(removed_body) + footer
+        removed_header = "<h2>Removed</h2>\n<ul>\n"
+        removed_body = [f"<li><s>{b}</s></li>" for b in self.removed if b]
+        removed_html = removed_header + "\n".join(removed_body) + footer
 
         output = []
 
@@ -100,24 +106,24 @@ class BikeType:
             output.append(removed_html)
 
         if output:
-            o = '\n'.join(output)
+            o = "\n".join(output)
             return f"<h1>{self.bike_type.title()}</h1>\n{o}"
         else:
-            return ''
+            return ""
 
     def __bool__(self):
         if self.new is None or self.removed is None:
-            raise ValueError('I gotta do first')
+            raise ValueError("I gotta do first")
 
         return bool(self.new) or bool(self.removed)
 
 
 def send_email(message):
-    current_time = dt.now().strftime('%Y-%m-%d %I:%M %p')
+    current_time = dt.now().strftime("%Y-%m-%d %I:%M %p")
     m = Mail(
         from_email=FROM_EMAIL,
         to_emails=TO_EMAILS,
-        subject=f'AF1 Update {current_time}',
+        subject=f"AF1 Update {current_time}",
         html_content=message,
     )
 
@@ -125,18 +131,26 @@ def send_email(message):
     sg.send(m)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     types = [
-        BikeType(url_addition='used-inventory', bike_type='used'),
-        BikeType(url_addition='aprilia-inventory-1?category=RS660', bike_type='new'),
-        BikeType(url_addition='aprilia-inventory-1?category=DEMO+MODEL+SALE', bike_type='demo'),
+        BikeType(
+            bike_type="used",
+            url_addition="used-inventory",
+        ),
+        BikeType(
+            bike_type="new",
+            url_addition="aprilia-inventory-1?category=RS660",
+        ),
+        BikeType(
+            bike_type="demo",
+            url_addition="aprilia-inventory-1?category=DEMO+MODEL+SALE",
+        ),
     ]
 
     [b.do() for b in types]
     message = [b.get_html() for b in types]
 
     if any(message) and has_secrets:
-        send_email('\n'.join(message))
+        send_email("\n".join(message))
     elif any(message) and not has_secrets:
-        print('\n'.join(message))
-
+        print("\n".join(message))
