@@ -1,155 +1,115 @@
 import requests
+from dataclasses import dataclass
 import pathlib
-import os
 from bs4 import BeautifulSoup as bs
 from datetime import datetime as dt
 
-from typing import Tuple, List
+from typing import List, Set
 
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
-from secrets import API_KEY, FROM_EMAIL, TO_EMAILS
-
+try:
+    from secrets import API_KEY, FROM_EMAIL, TO_EMAILS
+    has_secrets = True
+except ImportError:
+    has_secrets = False
 
 BASE_URL = 'https://www.af1racingaustin.com'
 CWD = pathlib.Path(__file__).parent.resolve()
 
+@dataclass
+class Bike:
+    title: str
+    price: str = None
 
-def get_soup(url: str):
-    res = requests.get(url)
-    res.raise_for_status()
-
-    return bs(res.text, 'html.parser')
-
-
-def get_used_products(soup) -> List[str]:
-    products = soup.find_all('div', {'class': 'product-title'})
-    titles = [p.text.strip() for p in products if p.text]
-    titles.sort()
-
-    return titles
+    def __str__(self):
+        return f'{self.price} - {self.title}'
 
 
-def get_last_line(file: str, cols: int=2) -> str:
-    with open(f'{CWD}/{file}', 'r') as f:
-        last_line = ''
-        for line in f.readlines():
-            last_line = line
+class BikeType:
+    def __init__(self, url_addition: str, bike_type: str):
+        self.url = '/'.join((BASE_URL, url_addition))
+        self.file_name = f'{bike_type.lower()}.txt'
+        self.bike_type = bike_type
 
-        return last_line.strip()
+        self.new = None
+        self.removed = None
 
+    def get_soup(self):
+        res = requests.get(self.url)
+        res.raise_for_status()
+        return bs(res.text, 'html.parser')
 
-def do_used() -> Tuple[str]:
-    url = f'{BASE_URL}/used-inventory'
-    soup = get_soup(url)
-    products = get_used_products(soup)
+    @staticmethod
+    def get_bikes(soup) -> List[Bike]:
+        prices = [p.text.strip() for p in soup.find_all('div', {'class': 'product-price'})]
+        titles = [p.text.strip() for p in soup.find_all('div', {'class': 'product-title'})]
 
-    output = '\t'.join(products)
-    last_line = get_last_line('used.txt')
+        d = [Bike(title=t.strip(), price=p.strip()) for t, p in zip(titles, prices)]
+        d.sort(key=lambda x: x.title)
 
-    with open(f'{CWD}/used.txt', 'a') as f:
-        f.write(output + '\n')
+        return d
 
-    current = set(products)
-    prev = set(l.strip() for l in last_line.split('\t'))
+    def get_last_line(self) -> Set[str]:
+        try:
+            with open(f'{CWD}/{self.file_name}', 'r') as f:
+                last_line = ''
+                for line in f.readlines():
+                    last_line = line
 
-    return current - prev, prev - current
+        except FileNotFoundError:
+            return set()
 
+        return set(l.strip() for l in last_line.split('\t'))
 
-def get_new_products(soup):
-    prices = [p.text.strip() for p in soup.find_all('div', {'class': 'product-price'})]
-    titles = [p.text.strip() for p in soup.find_all('div', {'class': 'product-title'})]
-    d = [{'title': t, 'price':p} for t, p in zip(titles, prices)]
-    d.sort(key=lambda x: x['title'])
+    def write_line(self, output):
+        with open(f'{CWD}/{self.file_name}', 'a') as f:
+            f.write('\t'.join(output) + '\n')
 
-    return d
+    def do(self):
+        soup = self.get_soup()
+        bikes = self.get_bikes(soup)
 
+        output = [f'{b.title} - {b.price}' for b in bikes]
 
-def get_new_output(titles) -> str:
-    prices_titles = {}
-    for tp in titles:
-        prices_titles[tp['price']] = tp['title'].split('-')[1]
+        prev = self.get_last_line()
+        self.write_line(output)
 
-    out = [f"{key} - {value}" for key, value in prices_titles.items()]
+        current = set(output)
 
-    return out
+        self.new = current - prev
+        self.removed = prev - current
 
+    def get_html(self) -> str:
+        footer = '\n</ul>'
 
-def do_new() -> List[str]:
-    url = f'{BASE_URL}/aprilia-inventory-1?category=RS660'
-    soup = get_soup(url)
-    products = get_new_products(soup)
+        added_header = '<h2>Added</h2>\n<ul>\n'
+        added_body = [f'<li>{b}</li>' for b in self.new if b]
+        added_html = added_header + '\n'.join(added_body) + footer
 
-    output = get_new_output(products)
-    last_line = get_last_line('new.txt')
+        removed_header = '<h2>Removed</h2>\n<ul>\n'
+        removed_body = [f'<li><s>{b}</s></li>' for b in self.removed if b]
+        removed_html = removed_header + '\n'.join(removed_body) + footer
 
-    with open(f'{CWD}/new.txt', 'a') as f:
-        f.write('\t'.join(output) + '\n')
+        output = []
 
-    current = set(o.strip() for o in output)
-    prev = set(l.strip() for l in last_line.split('\t'))
+        if added_body:
+            output.append(added_html)
+        if removed_body:
+            output.append(removed_html)
 
-    return current - prev, prev - current
+        if output:
+            o = '\n'.join(output)
+            return f"<h1>{self.bike_type.title()}</h1>\n{o}"
+        else:
+            return ''
 
+    def __bool__(self):
+        if self.new is None or self.removed is None:
+            raise ValueError('I gotta do first')
 
-def do_demo() -> List[str]:
-    url = f'{BASE_URL}/aprilia-inventory-1?category=DEMO+MODEL+SALE'
-    soup = get_soup(url)
-    products = get_used_products(soup)
-
-    output = '\t'.join(products)
-    last_line = get_last_line('demo.txt')
-
-    with open(f'{CWD}/demo.txt', 'a') as f:
-        f.write('\t'.join(output) + '\n')
-
-    current = set(o.strip() for o in output.split('\t'))
-    prev = set(l.strip() for l in last_line.split('\t'))
-
-    return current - prev, prev - current
-
-
-def get_html(
-        added_bikes: List[str], 
-        removed_bikes: List[str],
-        ) -> str:
-
-    added_header = '<h2>Added</h2>\n<ul>'
-    footer = '</ul>'
-    added_body = [f'<li>{b}</li>' for b in added_bikes if b]
-    added_html = added_header + '\n'.join(added_body) + footer
-
-    removed_header = '<h2>Removed</h2>\n<ul>'
-    removed_body = [f'<li><s>{b}</s></li>' for b in removed_bikes if b]
-    removed_html = removed_header + '\n'.join(removed_body) + footer
-
-    output = []
-
-    if added_body:
-        output.append(added_html)
-    if removed_body:
-        output.append(removed_html)
-
-    return '\n'.join(output)
-
-
-def get_message(new, demo, used):
-    message = []
-
-    if any(new):
-        message.append('<h1>New</h1>')
-        message.append(get_html(*new))
-
-    if any(demo):
-        message.append('<h1>Demo</h1>')
-        message.append(get_html(*demo))
-
-    if any(used):
-        message.append('<h1>Used</h1>')
-        message.append(get_html(*used))
-
-    return message
+        return bool(self.new) or bool(self.removed)
 
 
 def send_email(message):
@@ -162,16 +122,21 @@ def send_email(message):
     )
 
     sg = SendGridAPIClient(API_KEY)
-    response = sg.send(m)
+    sg.send(m)
 
 
 if __name__ == '__main__':
-    new = do_new()
-    demo = do_demo()
-    used = do_used()
+    types = [
+        BikeType(url_addition='used-inventory', bike_type='used'),
+        BikeType(url_addition='aprilia-inventory-1?category=RS660', bike_type='new'),
+        BikeType(url_addition='aprilia-inventory-1?category=DEMO+MODEL+SALE', bike_type='demo'),
+    ]
 
-    message = get_message(new, demo, used)
+    [b.do() for b in types]
+    message = [b.get_html() for b in types]
 
-    if message:
+    if any(message) and has_secrets:
         send_email('\n'.join(message))
+    elif any(message) and not has_secrets:
+        print('\n'.join(message))
 
