@@ -73,7 +73,7 @@ class BikeType:
         except FileNotFoundError:
             return set()
 
-        return set(l.strip() for l in last_line.split("\t"))
+        return set(line.strip() for line in last_line.split("\t"))
 
     def write_line(self, output):
         with open(f"{CWD}/{self.file_name}", "a") as f:
