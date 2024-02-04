@@ -156,12 +156,16 @@ if __name__ == "__main__":
     [b.do() for b in types]
     message = [b.get_html() for b in types]
 
+    should_send = False
+
     if any(message) and has_secrets:
+        should_send = True
         send_email("\n".join(message))
+
     elif any(message) and not has_secrets:
         print("\n".join(message))
 
     current_time = dt.now().strftime("%Y-%m-%d %I:%M %p")
     with open(f"{CWD}/runs.txt", "a") as f:
-        f.write(current_time + "\n")
+        f.write(current_time + '\t' + str(should_send) + "\n")
 
